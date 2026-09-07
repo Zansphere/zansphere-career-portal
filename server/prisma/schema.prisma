@@ -663,6 +663,7 @@ model Otp {
   purpose   OtpPurpose
   expiresAt DateTime   @map("expires_at") @db.Timestamptz
   used      Boolean    @default(false)
+  attempts  Int        @default(0)
   createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz
 
   user PortalUser @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -724,6 +725,9 @@ model PortalProfile {
 
   // Step 7: Consent
   dpdpConsent   Boolean  @default(false) @map("dpdp_consent")
+  consentTimestamp DateTime? @map("consent_timestamp") @db.Timestamptz
+  consentIp     String?  @map("consent_ip") @db.VarChar(45)
+  termsVersionId String? @default("v1.0") @map("terms_version_id") @db.VarChar(50)
 
   // Metadata
   currentStep   Int      @default(1) @map("current_step")
