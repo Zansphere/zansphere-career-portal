@@ -7,6 +7,29 @@ import { updateProfileSchema, changePasswordSchema } from '../utils/validators';
 const router = Router();
 router.use(authMiddleware);
 
+// ── URL validation helper ────────────────────────────────────
+function isValidUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function validateUrlFields(data: Record<string, any>): string | null {
+  const urlFields = ['linkedinUrl', 'githubUrl', 'portfolioUrl', 'resumeUrl'];
+  for (const field of urlFields) {
+    const value = data[field];
+    if (value && typeof value === 'string' && value.trim() !== '') {
+      if (!isValidUrl(value)) {
+        return `Invalid URL for ${field}. Only http:// and https:// URLs are allowed.`;
+      }
+    }
+  }
+  return null;
+}
+
 // ── GET /api/profile ─────────────────────────────────────────
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
@@ -97,6 +120,13 @@ router.put('/step/:step', async (req: AuthRequest, res: Response) => {
     }
 
     const data: any = { ...req.body };
+
+    // Validate URL fields before saving
+    const urlError = validateUrlFields(data);
+    if (urlError) {
+      res.status(400).json({ error: urlError });
+      return;
+    }
     
     // Handle employment history separately (Step 2)
     if (stepNum === 2 && data.employmentHistory) {
