@@ -50,6 +50,19 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+// ── GET /api/jobs/departments/list ─ Get all departments ─────
+router.get('/departments/list', async (_req: Request, res: Response) => {
+  try {
+    const departments: any[] = await prisma.$queryRawUnsafe(`
+      SELECT id, name FROM departments WHERE is_active = true ORDER BY name
+    `);
+    res.json({ departments });
+  } catch (err) {
+    console.error('Get departments error:', err);
+    res.status(500).json({ error: 'Failed to fetch departments.' });
+  }
+});
+
 // ── GET /api/jobs/:id ─ Get job details ──────────────────────
 router.get('/:id', async (req: Request, res: Response) => {
   try {
@@ -80,19 +93,6 @@ router.get('/:id', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Get job error:', err);
     res.status(500).json({ error: 'Failed to fetch job details.' });
-  }
-});
-
-// ── GET /api/jobs/departments/list ─ Get all departments ─────
-router.get('/departments/list', async (_req: Request, res: Response) => {
-  try {
-    const departments: any[] = await prisma.$queryRawUnsafe(`
-      SELECT id, name FROM departments WHERE is_active = true ORDER BY name
-    `);
-    res.json({ departments });
-  } catch (err) {
-    console.error('Get departments error:', err);
-    res.status(500).json({ error: 'Failed to fetch departments.' });
   }
 });
 
