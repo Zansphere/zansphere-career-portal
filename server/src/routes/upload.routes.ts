@@ -63,8 +63,9 @@ router.post(
         return;
       }
 
+      const sanitizedOriginalName = req.file.originalname.replace(/[\0\x00-\x1F\x7F]/g, '');
       const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-      const ext = path.extname(req.file.originalname);
+      const ext = path.extname(sanitizedOriginalName);
       const fileName = `resumes/resume-${uniqueSuffix}${ext}`;
       const bucketName = process.env.AWS_S3_BUCKET;
 
@@ -86,7 +87,7 @@ router.post(
       res.json({
         message: 'Resume uploaded successfully to S3!',
         fileUrl,
-        fileName: req.file.originalname,
+        fileName: sanitizedOriginalName,
       });
     } catch (err) {
       console.error('S3 Upload error:', err);

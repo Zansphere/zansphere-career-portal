@@ -112,6 +112,7 @@ router.put('/step/:step', async (req: AuthRequest, res: Response) => {
 
     const profile = await prisma.portalProfile.findUnique({
       where: { userId: req.userId },
+      include: { educationHistory: true },
     });
 
     if (!profile) {
@@ -121,11 +122,68 @@ router.put('/step/:step', async (req: AuthRequest, res: Response) => {
 
     const data: any = { ...req.body };
 
+    // Prevent bypass
+    delete data.isComplete;
+    delete data.currentStep;
+
+    // Sanitize string fields against CSV injection and enforce max lengths
+    for (const key of Object.keys(data)) {
+      if (typeof data[key] === 'string') {
+        data[key] = data[key].replace(/^[=+\-@]+/, '');
+        if ((key === 'firstName' || key === 'lastName' || key === 'fullName') && data[key].length > 200) {
+          res.status(400).json({ error: `${key} cannot exceed 200 characters.` });
+          return;
+        }
+      }
+    }
+
+    // Skills max limit: max 7 skills per category
+    if (data.skills && Array.isArray(data.skills)) {
+      for (const entry of data.skills) {
+        if (entry && typeof entry.skills === 'string') {
+          const count = entry.skills.split(',').map((s: string) => s.trim()).filter(Boolean).length;
+          if (count > 7) {
+            res.status(400).json({ 
+              error: `Maximum 7 skills allowed for ${entry.category || 'each category'}. Found ${count} skills.` 
+            });
+            return;
+          }
+        }
+      }
+    }
+
     // Validate URL fields before saving
     const urlError = validateUrlFields(data);
     if (urlError) {
       res.status(400).json({ error: urlError });
       return;
+    }
+
+    // Validate preferredDepartment against active departments in DB (Bug 09)
+    if (data.preferredDepartment !== undefined) {
+      if (!data.preferredDepartment || typeof data.preferredDepartment !== 'string' || !data.preferredDepartment.trim()) {
+        if (stepNum === 5) {
+          res.status(400).json({ error: 'Preferred department is required.' });
+          return;
+        }
+      } else {
+        const activeDepts = await prisma.$queryRawUnsafe<any[]>(`
+          SELECT name FROM departments WHERE is_active = true
+        `);
+        const validNames = activeDepts.map(d => d.name.toLowerCase().trim());
+        const inputDept = data.preferredDepartment.toLowerCase().trim();
+        const isValid = validNames.some(name => 
+          name === inputDept || 
+          (inputDept.length >= 3 && (name.includes(inputDept) || inputDept.includes(name)))
+        );
+
+        if (!isValid) {
+          res.status(400).json({ 
+            error: 'Invalid department selected. Please select a valid department from the available options.' 
+          });
+          return;
+        }
+      }
     }
     
     // Handle employment history separately (Step 2)
@@ -159,6 +217,27 @@ router.put('/step/:step', async (req: AuthRequest, res: Response) => {
         where: { profileId: profile.id },
       });
 
+      const maxGradYear = Math.max(2026, new Date().getFullYear());
+      const currentYear = new Date().getFullYear();
+      for (const entry of historyEntries) {
+        const year = parseInt(entry.yearOfPassing);
+        if (year < 2000 || year > maxGradYear) {
+          res.status(400).json({ error: `Graduation year must be between 2000 and ${maxGradYear}.` });
+          return;
+        }
+
+        // Temporal cross-validation with Experience (Bug 18)
+        if (profile.employmentStatus !== 'FRESHER' && profile.totalExperienceYears && profile.totalExperienceYears > 0) {
+          const maxPossibleExp = Math.max(0, (currentYear - year) + 1);
+          if (profile.totalExperienceYears > maxPossibleExp) {
+            res.status(400).json({ 
+              error: `Graduation year (${year}) is inconsistent with your recorded ${profile.totalExperienceYears} years of work experience. Maximum possible experience is ${maxPossibleExp} years.` 
+            });
+            return;
+          }
+        }
+      }
+
       if (historyEntries.length > 0) {
         await prisma.portalEducationHistory.createMany({
           data: historyEntries.map((entry: any) => ({
@@ -178,27 +257,81 @@ router.put('/step/:step', async (req: AuthRequest, res: Response) => {
     delete data.createdAt;
     delete data.updatedAt;
 
-    // Handle decimal fields
-    if (data.currentCtcFixed !== undefined) {
-      data.currentCtcFixed = data.currentCtcFixed ? parseFloat(data.currentCtcFixed) : null;
-    }
-    if (data.currentCtcVariable !== undefined) {
-      data.currentCtcVariable = data.currentCtcVariable ? parseFloat(data.currentCtcVariable) : null;
-    }
-    if (data.expectedCtc !== undefined) {
-      data.expectedCtc = data.expectedCtc ? parseFloat(data.expectedCtc) : null;
-    }
-
     // Handle date field
     if (data.dateOfBirth) {
       data.dateOfBirth = new Date(data.dateOfBirth);
     }
 
-    // Handle numeric fields
-    if (data.totalExperienceYears !== undefined) data.totalExperienceYears = parseInt(data.totalExperienceYears) || 0;
-    if (data.totalExperienceMonths !== undefined) data.totalExperienceMonths = parseInt(data.totalExperienceMonths) || 0;
-    if (data.relevantExperienceYears !== undefined) data.relevantExperienceYears = parseInt(data.relevantExperienceYears) || 0;
-    if (data.relevantExperienceMonths !== undefined) data.relevantExperienceMonths = parseInt(data.relevantExperienceMonths) || 0;
+    // Handle numeric fields & Freshers logic
+    if (data.employmentStatus === 'FRESHER') {
+      data.totalExperienceYears = 0;
+      data.totalExperienceMonths = 0;
+      data.relevantExperienceYears = 0;
+      data.relevantExperienceMonths = 0;
+      data.currentCompany = 'N/A';
+      data.currentDesignation = 'N/A';
+      data.currentCtcFixed = null;
+      data.currentCtcVariable = null;
+    } else {
+      if (data.totalExperienceYears !== undefined) {
+        data.totalExperienceYears = parseInt(data.totalExperienceYears) || 0;
+        if (data.totalExperienceYears < 0 || data.totalExperienceYears > 30) {
+          res.status(400).json({ error: 'Experience must be between 0 and 30 years.' });
+          return;
+        }
+
+        // Temporal cross-validation with Education (Bug 18)
+        if (profile.educationHistory && profile.educationHistory.length > 0 && data.totalExperienceYears > 0) {
+          const currentYear = new Date().getFullYear();
+          const gradYears = profile.educationHistory.map((e: any) => e.yearOfPassing);
+          const maxGradYear = Math.max(...gradYears);
+          const maxPossibleExp = Math.max(0, (currentYear - maxGradYear) + 1);
+          if (data.totalExperienceYears > maxPossibleExp) {
+            res.status(400).json({ 
+              error: `Work experience (${data.totalExperienceYears} years) is inconsistent with your graduation year (${maxGradYear}). Maximum possible experience is ${maxPossibleExp} years.` 
+            });
+            return;
+          }
+        }
+      }
+      if (data.totalExperienceMonths !== undefined) data.totalExperienceMonths = parseInt(data.totalExperienceMonths) || 0;
+      if (data.relevantExperienceYears !== undefined) data.relevantExperienceYears = parseInt(data.relevantExperienceYears) || 0;
+      if (data.relevantExperienceMonths !== undefined) data.relevantExperienceMonths = parseInt(data.relevantExperienceMonths) || 0;
+    }
+
+    // Handle decimal fields
+    const validateCtc = (rawVal: any, name: string, allowZero = false) => {
+      const strVal = String(rawVal).trim();
+      if (strVal.length > 7) return `${name} cannot exceed 7 characters.`;
+      const val = parseFloat(strVal);
+      if (allowZero && (val === 0 || strVal === '0')) return null;
+      if (isNaN(val) || val < 100000 || val > 9999999) return `${name} must be between 100,000 and 9,999,999.`;
+      return null;
+    };
+
+    if (data.currentCtcFixed !== undefined) {
+      if (data.currentCtcFixed !== null && data.currentCtcFixed !== '') {
+        const err = validateCtc(data.currentCtcFixed, 'Current CTC');
+        if (err) { res.status(400).json({ error: err }); return; }
+        data.currentCtcFixed = parseFloat(data.currentCtcFixed);
+      } else data.currentCtcFixed = null;
+    }
+    
+    if (data.currentCtcVariable !== undefined) {
+      if (data.currentCtcVariable !== null && data.currentCtcVariable !== '') {
+        const err = validateCtc(data.currentCtcVariable, 'Variable CTC', true);
+        if (err) { res.status(400).json({ error: err }); return; }
+        data.currentCtcVariable = parseFloat(data.currentCtcVariable);
+      } else data.currentCtcVariable = null;
+    }
+
+    if (data.expectedCtc !== undefined) {
+      if (data.expectedCtc !== null && data.expectedCtc !== '') {
+        const err = validateCtc(data.expectedCtc, 'Expected CTC');
+        if (err) { res.status(400).json({ error: err }); return; }
+        data.expectedCtc = parseFloat(data.expectedCtc);
+      } else data.expectedCtc = null;
+    }
 
     // Update current step (only advance, don't go back)
     if (stepNum >= (profile.currentStep || 1)) {
@@ -207,7 +340,10 @@ router.put('/step/:step', async (req: AuthRequest, res: Response) => {
 
     // Check if profile is complete (e.g. they reached step 7 and clicked submit)
     if (stepNum === 7 && data.dpdpConsent) {
-        data.isComplete = true;
+      data.isComplete = true;
+      data.consentTimestamp = new Date();
+      data.consentIp = req.ip || '';
+      data.termsVersionId = data.termsVersionId || 'v1.0';
     }
 
     const updated = await prisma.$transaction(async (tx) => {
@@ -310,6 +446,39 @@ router.post('/change-password', async (req: AuthRequest, res: Response) => {
   } catch (err) {
     console.error('Change password error:', err);
     res.status(500).json({ error: 'Failed to change password.' });
+  }
+});
+
+// ── DELETE /api/profile ─ Delete candidate profile (DPDP Erasure) ───────
+router.delete('/', async (req: AuthRequest, res: Response) => {
+  try {
+    const profile = await prisma.portalProfile.findUnique({
+      where: { userId: req.userId },
+    });
+
+    if (!profile) {
+      res.status(404).json({ error: 'Profile not found.' });
+      return;
+    }
+
+    // Attempt to delete candidate from Zanpeople ATS if it exists
+    if (profile.zanpeopleId) {
+      try {
+        await prisma.$executeRawUnsafe(`DELETE FROM candidates WHERE id = $1::uuid`, profile.zanpeopleId);
+      } catch (err) {
+        console.error('Failed to delete from Zanpeople:', err);
+      }
+    }
+
+    // Delete PortalUser (Cascades to PortalProfile, OTPs, etc)
+    await prisma.portalUser.delete({
+      where: { id: req.userId },
+    });
+
+    res.json({ message: 'Your account and profile data have been permanently deleted.' });
+  } catch (err) {
+    console.error('Delete profile error:', err);
+    res.status(500).json({ error: 'Failed to delete account data.' });
   }
 });
 
