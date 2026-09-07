@@ -29,11 +29,11 @@ router.post('/register', authLimiter, upload.single('resume'), async (req: Reque
       return;
     }
 
-    // Check if user already exists
+    // Check if user already exists — return generic message to prevent enumeration
     const existing = await prisma.portalUser.findUnique({ where: { email } });
     if (existing) {
       if (existing.status === 'PENDING') {
-        // Re-send OTP for unverified accounts
+        // Re-send OTP for unverified accounts (silently)
         const otp = generateOtp();
         const hashedOtp = await bcrypt.hash(otp, 10);
         
@@ -52,10 +52,9 @@ router.post('/register', authLimiter, upload.single('resume'), async (req: Reque
         });
 
         sendOtpEmail(email, otp, 'verification').catch(console.error);
-        res.status(200).json({ message: 'Account exists but unverified. A new OTP has been sent to your email.' });
-        return;
       }
-      res.status(409).json({ error: 'An account with this email already exists.' });
+      // Return same generic error for ALL existing accounts (PENDING, VERIFIED, SUSPENDED)
+      res.status(400).json({ error: 'Invalid email or password.' });
       return;
     }
 
