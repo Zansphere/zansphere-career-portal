@@ -13,6 +13,7 @@ export default function Register() {
     password: '',
     phone: '',
     departmentOfInterest: '',
+    dpdpConsent: false,
   });
   const [resumeFile, setResumeFile] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -55,10 +56,16 @@ export default function Register() {
       return;
     }
 
+    if (!form.dpdpConsent) {
+      toast.error('Please accept the Privacy Policy and DPDP consent.');
+      return;
+    }
+
     setLoading(true);
     try {
       const formData = new FormData();
       Object.keys(form).forEach(key => formData.append(key, form[key]));
+      formData.append('termsVersionId', 'v1.0');
       formData.append('resume', resumeFile);
 
       const res = await api.post('/auth/register', formData, {
@@ -200,9 +207,8 @@ export default function Register() {
                 <option value="" disabled>Select Department</option>
                 <option value="Engineering">Engineering</option>
                 <option value="Design">Design</option>
-                <option value="Marketing">Marketing</option>
-                <option value="Sales">Sales</option>
-                <option value="HR">HR / Operations</option>
+                <option value="Sales & Marketing">Sales & Marketing</option>
+                <option value="HR & Operations">HR & Operations</option>
               </select>
             </div>
           </div>
@@ -229,6 +235,22 @@ export default function Register() {
                   <span>Choose PDF file</span>
                 </>
               )}
+            </label>
+          </div>
+
+          <div className="form-group" style={{ marginTop: '14px', marginBottom: '16px' }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer', fontSize: '12px', color: 'var(--text-secondary)' }}>
+              <input
+                type="checkbox"
+                name="dpdpConsent"
+                checked={form.dpdpConsent}
+                onChange={(e) => setForm({ ...form, dpdpConsent: e.target.checked })}
+                required
+                style={{ marginTop: '3px' }}
+              />
+              <span>
+                I agree to the <strong>Privacy Policy &amp; Terms of Service (Version 1.0)</strong> and consent to my data being processed for recruitment purposes under the DPDP Act. <span className="required">*</span>
+              </span>
             </label>
           </div>
 

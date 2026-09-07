@@ -22,11 +22,30 @@ router.post('/register', authLimiter, upload.single('resume'), async (req: Reque
       return;
     }
 
-    const { firstName, lastName, email, password, phone, roleOfInterest, departmentOfInterest } = parsed.data;
+    const { firstName, lastName, email, password, phone, roleOfInterest, departmentOfInterest, dpdpConsent } = parsed.data;
 
     if (!req.file) {
       res.status(400).json({ error: 'Resume (PDF) is required.' });
       return;
+    }
+
+    if (departmentOfInterest) {
+      const activeDepts = await prisma.$queryRawUnsafe<any[]>(`
+        SELECT name FROM departments WHERE is_active = true
+      `);
+      const validNames = activeDepts.map(d => d.name.toLowerCase().trim());
+      const inputDept = departmentOfInterest.toLowerCase().trim();
+      const isValid = validNames.some(name => 
+        name === inputDept || 
+        (inputDept.length >= 3 && (name.includes(inputDept) || inputDept.includes(name)))
+      );
+
+      if (!isValid) {
+        res.status(400).json({ 
+          error: 'Invalid department selected. Please select a valid department from the available options.' 
+        });
+        return;
+      }
     }
 
     // Check if user already exists — return generic message to prevent enumeration
@@ -60,7 +79,8 @@ router.post('/register', authLimiter, upload.single('resume'), async (req: Reque
 
     // Upload resume to S3
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    const ext = path.extname(req.file.originalname);
+    const sanitizedOriginalName = req.file.originalname.replace(/[\0\x00-\x1F\x7F]/g, '');
+    const ext = path.extname(sanitizedOriginalName);
     const fileName = `resumes/resume-${uniqueSuffix}${ext}`;
     const bucketName = process.env.AWS_S3_BUCKET;
 
@@ -115,9 +135,13 @@ router.post('/register', authLimiter, upload.single('resume'), async (req: Reque
           preferredDepartment: departmentOfInterest || '',
           roleOfInterest: roleOfInterest || '',
           resumeUrl,
-          resumeFileName: req.file!.originalname,
+          resumeFileName: sanitizedOriginalName,
           currentStep: 1,
           isComplete: false,
+          dpdpConsent: true,
+          consentTimestamp: new Date(),
+          consentIp: req.ip,
+          termsVersionId: 'v1.0',
         },
       });
 
@@ -143,8 +167,12 @@ router.post('/register', authLimiter, upload.single('resume'), async (req: Reque
       message: 'Registration successful! Please check your email for the verification OTP.',
       email: user.email,
     });
-  } catch (err) {
-    console.error('Register error:', err);
+  } catch (err: any) {
+    if (err.code === 'P2002') {
+      res.status(400).json({ error: 'Invalid email or password.' });
+      return;
+    }
+    console.error('Registration error:', err);
     res.status(500).json({ error: 'Registration failed. Please try again.' });
   }
 });
@@ -182,20 +210,29 @@ router.post('/verify-otp', otpLimiter, async (req: Request, res: Response) => {
       return;
     }
 
+    if (otpRecord.attempts >= 5) {
+      res.status(429).json({ error: 'Maximum attempts reached. Please request a new OTP.' });
+      return;
+    }
+
     // Verify OTP
     const isValid = await bcrypt.compare(otp, otpRecord.code);
     if (!isValid) {
+      await prisma.otp.update({
+        where: { id: otpRecord.id },
+        data: { attempts: { increment: 1 } },
+      });
       res.status(400).json({ error: 'Invalid OTP. Please try again.' });
       return;
     }
 
     // Mark OTP as used
-    await prisma.otp.update({
-      where: { id: otpRecord.id },
-      data: { used: true },
-    });
-
     if (purpose === 'EMAIL_VERIFICATION') {
+      await prisma.otp.update({
+        where: { id: otpRecord.id },
+        data: { used: true },
+      });
+
       // Activate account
       await prisma.portalUser.update({
         where: { id: user.id },
@@ -411,8 +448,17 @@ router.post('/reset-password', authLimiter, async (req: Request, res: Response) 
       return;
     }
 
+    if (otpRecord.attempts >= 5) {
+      res.status(429).json({ error: 'Maximum attempts reached. Please request a new OTP.' });
+      return;
+    }
+
     const isValid = await bcrypt.compare(otp, otpRecord.code);
     if (!isValid) {
+      await prisma.otp.update({
+        where: { id: otpRecord.id },
+        data: { attempts: { increment: 1 } },
+      });
       res.status(400).json({ error: 'Invalid OTP.' });
       return;
     }
