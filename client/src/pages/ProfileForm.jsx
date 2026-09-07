@@ -116,7 +116,11 @@ export default function ProfileForm() {
   const handleSubmit = async (data) => {
     setSaving(true);
     try {
-      const res = await api.put(`/profile/step/7`, { ...data, dpdpConsent: true });
+      const res = await api.put(`/profile/step/7`, { 
+        ...data, 
+        dpdpConsent: true, 
+        termsVersionId: data?.termsVersionId || 'v1.0' 
+      });
       toast.success('Profile completed successfully!');
       navigate('/dashboard');
     } catch (err) {

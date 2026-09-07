@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import toast from 'react-hot-toast';
 import { ArrowLeft, ArrowRight, Plus, Trash2 } from 'lucide-react';
 
 export default function StepEducation({ application, saving, onNext, onPrev }) {
@@ -31,6 +32,23 @@ export default function StepEducation({ application, saving, onNext, onPrev }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    const currentYear = new Date().getFullYear();
+    const maxGradYear = Math.max(2026, currentYear);
+
+    for (const entry of history) {
+      const year = parseInt(entry.yearOfPassing);
+      if (isNaN(year) || year < 2000 || year > maxGradYear) {
+        toast.error(`Graduation year must be between 2000 and ${maxGradYear}.`);
+        return;
+      }
+      if (application.employmentStatus !== 'FRESHER' && application.totalExperienceYears && application.totalExperienceYears > 0) {
+        const maxPossibleExp = Math.max(0, (currentYear - year) + 1);
+        if (application.totalExperienceYears > maxPossibleExp) {
+          toast.error(`Graduation year (${year}) is inconsistent with your recorded ${application.totalExperienceYears} years of work experience.`);
+          return;
+        }
+      }
+    }
     onNext({ educationHistory: history });
   };
 
@@ -68,7 +86,7 @@ export default function StepEducation({ application, saving, onNext, onPrev }) {
             <div className="grid-2">
               <div className="form-group">
                 <label className="form-label">Year of Passing <span className="required">*</span></label>
-                <input type="number" className="form-input" placeholder="e.g., 2024" min="1980" max="2030" value={entry.yearOfPassing} onChange={(e) => handleHistoryChange(index, 'yearOfPassing', e.target.value)} required />
+                <input type="number" className="form-input" placeholder="e.g., 2024" min="2000" max={Math.max(2026, new Date().getFullYear())} value={entry.yearOfPassing} onChange={(e) => handleHistoryChange(index, 'yearOfPassing', e.target.value)} required />
               </div>
               <div className="form-group">
                 <label className="form-label">Percentage / CGPA <span className="required">*</span></label>

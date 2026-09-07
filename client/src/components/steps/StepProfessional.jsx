@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import toast from 'react-hot-toast';
 import { ArrowLeft, ArrowRight, Plus, Trash2 } from 'lucide-react';
 
 export default function StepProfessional({ application, saving, onNext, onPrev }) {
@@ -8,9 +9,9 @@ export default function StepProfessional({ application, saving, onNext, onPrev }
     currentDesignation: application.currentDesignation || '',
     totalExperience: application.totalExperienceYears !== undefined ? (application.totalExperienceYears + (application.totalExperienceMonths / 12)).toFixed(1).replace(/\.0$/, '') : '',
     relevantExperience: application.relevantExperienceYears !== undefined ? (application.relevantExperienceYears + (application.relevantExperienceMonths / 12)).toFixed(1).replace(/\.0$/, '') : '',
-    currentCtcFixed: application.currentCtcFixed || '',
-    currentCtcVariable: application.currentCtcVariable || '',
-    expectedCtc: application.expectedCtc || '',
+    currentCtcFixed: (application.currentCtcFixed && Number(application.currentCtcFixed) > 0) ? application.currentCtcFixed : '',
+    currentCtcVariable: (application.currentCtcVariable && Number(application.currentCtcVariable) >= 0) ? application.currentCtcVariable : '',
+    expectedCtc: (application.expectedCtc && Number(application.expectedCtc) > 0) ? application.expectedCtc : '',
     noticePeriod: application.noticePeriod || 'Immediate',
   });
 
@@ -22,6 +23,9 @@ export default function StepProfessional({ application, saving, onNext, onPrev }
 
   const handleChange = (e) => {
     const { name, value } = e.target;
+    if ((name === 'expectedCtc' || name === 'currentCtcFixed' || name === 'currentCtcVariable') && value.length > 7) {
+      return;
+    }
     setForm({ ...form, [name]: value });
   };
 
@@ -47,6 +51,33 @@ export default function StepProfessional({ application, saving, onNext, onPrev }
     // Parse experience
     const totalExp = parseFloat(form.totalExperience) || 0;
     const relExp = parseFloat(form.relevantExperience) || 0;
+
+    if (form.employmentStatus !== 'FRESHER') {
+      if (totalExp < 0 || totalExp > 30) {
+        toast.error('Total experience must be between 0 and 30 years.');
+        return;
+      }
+      if (relExp < 0 || relExp > 30) {
+        toast.error('Relevant experience must be between 0 and 30 years.');
+        return;
+      }
+      if (relExp > totalExp) {
+        toast.error('Relevant experience cannot exceed total experience.');
+        return;
+      }
+
+      // Temporal cross-validation with Education (Bug 18)
+      if (application.educationHistory && application.educationHistory.length > 0 && totalExp > 0) {
+        const currentYear = new Date().getFullYear();
+        const gradYears = application.educationHistory.map((h) => parseInt(h.yearOfPassing) || currentYear);
+        const maxGradYear = Math.max(...gradYears);
+        const maxPossibleExp = Math.max(0, (currentYear - maxGradYear) + 1);
+        if (totalExp > maxPossibleExp) {
+          toast.error(`Work experience (${totalExp} years) is inconsistent with your graduation year (${maxGradYear}). Maximum possible experience is ${maxPossibleExp} years.`);
+          return;
+        }
+      }
+    }
     
     const submissionData = {
       ...form,
@@ -68,8 +99,8 @@ export default function StepProfessional({ application, saving, onNext, onPrev }
       submissionData.totalExperienceMonths = 0;
       submissionData.relevantExperienceYears = 0;
       submissionData.relevantExperienceMonths = 0;
-      submissionData.currentCtcFixed = 0;
-      submissionData.currentCtcVariable = 0;
+      submissionData.currentCtcFixed = null;
+      submissionData.currentCtcVariable = null;
       submissionData.employmentHistory = [];
     }
     
@@ -106,26 +137,55 @@ export default function StepProfessional({ application, saving, onNext, onPrev }
         <div className="grid-2">
           <div className="form-group">
             <label className="form-label">Total Experience (Years) <span className="required">*</span></label>
-            <input type="number" step="0.1" name="totalExperience" className="form-input" placeholder="e.g. 2.5" min="0" value={form.totalExperience} onChange={handleChange} required={!isFresher} disabled={isFresher} />
+            <input type="number" step="0.1" name="totalExperience" className="form-input" placeholder="e.g. 2.5" min="0" max="30" value={form.totalExperience} onChange={handleChange} required={!isFresher} disabled={isFresher} />
           </div>
           <div className="form-group">
             <label className="form-label">Relevant Experience (Years) <span className="required">*</span></label>
-            <input type="number" step="0.1" name="relevantExperience" className="form-input" placeholder="e.g. 1.5" min="0" value={form.relevantExperience} onChange={handleChange} required={!isFresher} disabled={isFresher} />
+            <input type="number" step="0.1" name="relevantExperience" className="form-input" placeholder="e.g. 1.5" min="0" max="30" value={form.relevantExperience} onChange={handleChange} required={!isFresher} disabled={isFresher} />
           </div>
         </div>
 
         <div className="grid-3">
           <div className="form-group">
             <label className="form-label">Current CTC (Fixed) <span className="required">*</span></label>
-            <input type="number" name="currentCtcFixed" className="form-input" placeholder="₹ per annum" value={form.currentCtcFixed} onChange={handleChange} required={!isFresher} disabled={isFresher} />
+            <input 
+              type="number" 
+              name="currentCtcFixed" 
+              className="form-input" 
+              placeholder="₹ per annum" 
+              value={form.currentCtcFixed} 
+              onChange={handleChange} 
+              onInput={(e) => { if (e.target.value.length > 7) e.target.value = e.target.value.slice(0, 7); }}
+              required={!isFresher} 
+              disabled={isFresher} 
+            />
           </div>
           <div className="form-group">
             <label className="form-label">Current CTC (Variable) <span className="required">*</span></label>
-            <input type="number" name="currentCtcVariable" className="form-input" placeholder="₹ per annum" value={form.currentCtcVariable} onChange={handleChange} required={!isFresher} disabled={isFresher} />
+            <input 
+              type="number" 
+              name="currentCtcVariable" 
+              className="form-input" 
+              placeholder="₹ per annum" 
+              value={form.currentCtcVariable} 
+              onChange={handleChange} 
+              onInput={(e) => { if (e.target.value.length > 7) e.target.value = e.target.value.slice(0, 7); }}
+              required={!isFresher} 
+              disabled={isFresher} 
+            />
           </div>
           <div className="form-group">
             <label className="form-label">Expected CTC <span className="required">*</span></label>
-            <input type="number" name="expectedCtc" className="form-input" placeholder="₹ per annum" value={form.expectedCtc} onChange={handleChange} required />
+            <input 
+              type="number" 
+              name="expectedCtc" 
+              className="form-input" 
+              placeholder="₹ per annum" 
+              value={form.expectedCtc} 
+              onChange={handleChange} 
+              onInput={(e) => { if (e.target.value.length > 7) e.target.value = e.target.value.slice(0, 7); }}
+              required 
+            />
           </div>
         </div>
 

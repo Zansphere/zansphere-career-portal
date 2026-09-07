@@ -32,7 +32,7 @@ export default function StepReview({ application, saving, onPrev, onSubmit, onGo
 
   const handleSubmit = () => {
     if (!consent) return;
-    onSubmit();
+    onSubmit({ dpdpConsent: true, termsVersionId: 'v1.0' });
   };
 
   return (
@@ -117,7 +117,7 @@ export default function StepReview({ application, saving, onPrev, onSubmit, onGo
           <div className="consent-box" style={{ marginTop: 'var(--space-6)' }}>
             <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} id="consent" />
             <label htmlFor="consent">
-              I agree to the <strong>Privacy Policy</strong> and consent to my data being processed for recruitment purposes under the Digital Personal Data Protection Act, 2023 (DPDP Act).
+              I agree to the <strong>Privacy Policy &amp; Terms of Service (Version 1.0)</strong> and consent to my data being processed for recruitment purposes under the Digital Personal Data Protection Act, 2023 (DPDP Act).
             </label>
           </div>
 

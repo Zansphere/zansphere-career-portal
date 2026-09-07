@@ -12,31 +12,47 @@ export default function StepPreferences({ application, saving, onNext, onPrev })
   });
 
   const [jobs, setJobs] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
   const [isOtherRole, setIsOtherRole] = useState(false);
   const [otherRoleValue, setOtherRoleValue] = useState('');
 
   useEffect(() => {
-    const fetchJobs = async () => {
+    const fetchOptions = async () => {
       try {
-        const res = await api.get('/jobs');
-        if (res.data && res.data.jobs) {
-          setJobs(res.data.jobs);
+        const [jobsRes, deptsRes] = await Promise.allSettled([
+          api.get('/jobs'),
+          api.get('/jobs/departments/list'),
+        ]);
+
+        if (jobsRes.status === 'fulfilled' && jobsRes.value.data?.jobs) {
+          setJobs(jobsRes.value.data.jobs);
           
           // Check if current roleOfInterest is not in the jobs list
-          if (application.roleOfInterest && !res.data.jobs.find(j => j.id === application.roleOfInterest || j.title === application.roleOfInterest)) {
+          if (application.roleOfInterest && !jobsRes.value.data.jobs.find(j => j.id === application.roleOfInterest || j.title === application.roleOfInterest)) {
             setIsOtherRole(true);
             setOtherRoleValue(application.roleOfInterest);
             setForm(prev => ({ ...prev, roleOfInterest: 'OTHER' }));
           }
         }
+
+        if (deptsRes.status === 'fulfilled' && deptsRes.value.data?.departments?.length > 0) {
+          setDepartments(deptsRes.value.data.departments);
+        } else {
+          setDepartments([
+            { id: '1', name: 'Engineering' },
+            { id: '2', name: 'Design' },
+            { id: '3', name: 'Sales & Marketing' },
+            { id: '4', name: 'HR & Operations' },
+          ]);
+        }
       } catch (err) {
-        console.error('Failed to fetch jobs', err);
+        console.error('Failed to fetch preference options', err);
       } finally {
         setLoadingJobs(false);
       }
     };
-    fetchJobs();
+    fetchOptions();
   }, [application.roleOfInterest]);
 
   const handleChange = (e) => {
@@ -98,7 +114,20 @@ export default function StepPreferences({ application, saving, onNext, onPrev })
         <div className="grid-2">
           <div className="form-group">
             <label className="form-label">Preferred Department <span className="required">*</span></label>
-            <input type="text" name="preferredDepartment" className="form-input" placeholder="e.g., Development, Testing, HR" value={form.preferredDepartment} onChange={handleChange} maxLength={100} required />
+            <select
+              name="preferredDepartment"
+              className="form-input form-select"
+              value={form.preferredDepartment}
+              onChange={handleChange}
+              required
+            >
+              <option value="" disabled>Select Department</option>
+              {departments.map((dept) => (
+                <option key={dept.id || dept.name} value={dept.name}>
+                  {dept.name}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="form-group">
             <label className="form-label">Job Preference <span className="required">*</span></label>
