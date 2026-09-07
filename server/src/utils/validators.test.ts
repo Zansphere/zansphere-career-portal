@@ -18,7 +18,8 @@ describe('Validators', () => {
         password: 'Password123!',
         phone: '1234567890',
         roleOfInterest: 'Developer',
-        departmentOfInterest: 'Engineering'
+        departmentOfInterest: 'Engineering',
+        dpdpConsent: true,
       };
       expect(registerSchema.safeParse(validData).success).toBe(true);
     });

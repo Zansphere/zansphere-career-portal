@@ -17,6 +17,11 @@ export const registerSchema = z.object({
     .regex(/^\+?[0-9]+$/, 'Invalid phone number format'),
   roleOfInterest: z.string().min(1, 'Role of interest is required').max(100).optional(),
   departmentOfInterest: z.string().min(1, 'Area of interest is required').max(100).optional(),
+  dpdpConsent: z.preprocess(
+    (val) => (val === true || val === 'true' || val === '1' || val === 1),
+    z.literal(true, { errorMap: () => ({ message: "DPDP Consent is mandatory." }) })
+  ),
+  termsVersionId: z.string().max(50).optional().default('v1.0'),
 });
 
 export const loginSchema = z.object({

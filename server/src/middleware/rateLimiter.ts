@@ -13,6 +13,9 @@ export const authLimiter = rateLimit({
 export const otpLimiter = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
   max: 5, // 5 OTP requests per 5 min
+  keyGenerator: (req) => {
+    return req.body?.email ? req.body.email.toLowerCase() : (req.ip || 'unknown');
+  },
   message: { error: 'Too many OTP requests. Please wait before requesting again.' },
   standardHeaders: true,
   legacyHeaders: false,
